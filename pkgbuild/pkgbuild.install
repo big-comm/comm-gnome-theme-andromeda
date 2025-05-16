@@ -62,20 +62,20 @@ post_install() {
     mkdir -p "$GTK4_DIR" "$GTK3_DIR"
     chown -R "$user:$user" "$GTK4_DIR" "$GTK3_DIR"
 
-    cp -rp /usr/share/themes/andromeda/gtk-4.0/* "$GTK4_DIR/"
-    cp -rp /usr/share/themes/andromeda/gtk-3.0/* "$GTK3_DIR/"
+    cp -rp /usr/share/themes/Andromeda/gtk-4.0/* "$GTK4_DIR/"
+    cp -rp /usr/share/themes/Andromeda/gtk-3.0/* "$GTK3_DIR/"
     chown -R "$user:$user" "$GTK4_DIR" "$GTK3_DIR"
 
     printMsg "Applying Andromeda theme for user $user..."
     su - "$user" -c "
         export DISPLAY=:0;
         export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
-        gsettings set org.gnome.shell.extensions.user-theme name 'andromeda';
-        gsettings set org.gnome.desktop.interface gtk-theme 'andromeda';
-        gsettings set org.gnome.desktop.wm.preferences theme 'andromeda';
+        gsettings set org.gnome.shell.extensions.user-theme name 'Andromeda';
+        gsettings set org.gnome.desktop.interface gtk-theme 'Andromeda';
+        gsettings set org.gnome.desktop.wm.preferences theme 'Andromeda';
     "
 
-    ln -sf /usr/share/themes/andromeda/assets "$user_home/.config/assets"
+    ln -sf /usr/share/themes/Andromeda/assets "$user_home/.config/assets"
     chown -h "$user:$user" "$user_home/.config/assets"
 
     printMsg "Andromeda theme applied successfully!"
