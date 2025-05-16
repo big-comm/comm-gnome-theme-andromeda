@@ -10,73 +10,104 @@ white="\e[1;97m"             # Bold white
 reset="\e[0m"                # Reset text formatting
 
 # Print status messages - CHANGE 'PACKAGE_NAME' to your actual package name
+
 printMsg() {
     local message=$1
-    echo -e "${blueDark}[${lightBlue}PACKAGE_NAME${blueDark}]${reset} ${cyan}→${reset} ${white}${message}${reset}"
+    echo -e "${blueDark}[${lightBlue}comm-gnome-theme-andromeda${blueDark}]${reset} ${cyan}→${reset} ${white}${message}${reset}"
 }
 
-# Function executed before package installation
-# pre_install() {
-#     printMsg "Preparing to install the package..."
-#     # Example: Check for system dependencies
-#     # if ! command -v required_command &> /dev/null; then
-#     #     printMsg "Error: required_command not found. Please install it before continuing."
-#     #     exit 1
-#     # fi
-# }
+pre_install() {
+    printMsg "Preparing to install Andromeda theme for GNOME..."
+    if [ "$XDG_CURRENT_DESKTOP" != "GNOME" ]; then
+        printMsg "Error: GNOME is not the current desktop environment."
+        exit 1
+    fi
+}
 
-# Function executed after package installation
-# post_install() {
-#     printMsg "Configuring the package after installation..."
-#     # Example: Create a configuration directory
-#     # mkdir -p /etc/mypackage
-#     # chmod 755 /etc/mypackage
-#     # printMsg "Created configuration directory"
-#
-#     # Example: Start a service
-#     # systemctl enable myservice.service
-#     # systemctl start myservice.service
-#     # printMsg "Service enabled and started"
-# }
+post_install() {
+    printMsg "Cloning Andromeda theme from GitHub..."
+    tmp_dir="/tmp/Andromeda"
+    repo_url="https://github.com/EliverLara/Andromeda-gtk.git"
 
-# Function executed before package upgrade
-# pre_upgrade() {
-#     printMsg "Preparing to upgrade the package..."
-#     # Example: Backup configuration files
-#     # cp /etc/mypackage/config.conf /etc/mypackage/config.conf.bak
-#     # printMsg "Configuration backup created"
-# }
+    rm -rf "$tmp_dir"
+    git clone --depth=1 "$repo_url" "$tmp_dir"
+    if [ $? -ne 0 ]; then
+        printMsg "Failed to clone Andromeda repository"
+        return 1
+    fi
 
-# Function executed after package upgrade
-# post_upgrade() {
-#     printMsg "Finalizing package upgrade..."
-#     # Usually, post_install is called here to ensure
-#     # all post-installation configurations are applied
-#     # post_install
-#
-#     # Example: Check and update configuration files
-#     # if [ -f /etc/mypackage/config.conf.pacnew ]; then
-#     #     printMsg "New configuration file available. Please review /etc/mypackage/config.conf.pacnew"
-#     # fi
-#     # printMsg "Upgrade completed successfully"
-# }
+    printMsg "Installing theme to /usr/share/themes/Andromeda"
+    mkdir -p /usr/share/themes/Andromeda
+    cp -r "$tmp_dir/"* /usr/share/themes/Andromeda/
+    chown -R root:root /usr/share/themes/Andromeda
+    rm -rf "$tmp_dir"
 
-# Function executed before package removal
-# pre_remove() {
-#     printMsg "Preparing to remove the package..."
-#     # Example: Stop services
-#     # systemctl stop myservice.service
-#     # systemctl disable myservice.service
-#     # printMsg "Services stopped"
-# }
+    user=$(logname)
+    user_home=$(getent passwd "$user" | cut -d: -f6)
+    backup_file="$user_home/.config/gnome-settings-backup.txt"
 
-# Function executed after package removal
-# post_remove() {
-#     printMsg "Cleaning up after package removal..."
-#     # Example: Remove data directories created by the package
-#     # rm -rf /var/lib/mypackage
-#     # printMsg "Package directories removed"
-#
-#     # printMsg "If you want to remove all user data, run:"
-#     # printMsg "rm -rf /home/*/mypackage_data"
-# }
+    printMsg "Backing up current GNOME theme settings..."
+    su - "$user" -c "
+        export DISPLAY=:0;
+        export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
+        {
+            echo org.gnome.shell.extensions.user-theme name \$(gsettings get org.gnome.shell.extensions.user-theme name);
+            echo org.gnome.desktop.interface gtk-theme \$(gsettings get org.gnome.desktop.interface gtk-theme);
+            echo org.gnome.desktop.wm.preferences theme \$(gsettings get org.gnome.desktop.wm.preferences theme);
+        } > \"$backup_file\"
+    "
+
+    GTK4_DIR="$user_home/.config/gtk-4.0"
+    GTK3_DIR="$user_home/.config/gtk-3.0"
+    mkdir -p "$GTK4_DIR" "$GTK3_DIR"
+    chown -R "$user:$user" "$GTK4_DIR" "$GTK3_DIR"
+
+    cp -rp /usr/share/themes/andromeda/gtk-4.0/* "$GTK4_DIR/"
+    cp -rp /usr/share/themes/andromeda/gtk-3.0/* "$GTK3_DIR/"
+    chown -R "$user:$user" "$GTK4_DIR" "$GTK3_DIR"
+
+    printMsg "Applying Andromeda theme for user $user..."
+    su - "$user" -c "
+        export DISPLAY=:0;
+        export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
+        gsettings set org.gnome.shell.extensions.user-theme name 'andromeda';
+        gsettings set org.gnome.desktop.interface gtk-theme 'andromeda';
+        gsettings set org.gnome.desktop.wm.preferences theme 'andromeda';
+    "
+
+    ln -sf /usr/share/themes/andromeda/assets "$user_home/.config/assets"
+    chown -h "$user:$user" "$user_home/.config/assets"
+
+    printMsg "Andromeda theme applied successfully!"
+}
+
+pre_remove() {
+    printMsg "Preparing to remove Andromeda theme..."
+}
+
+post_remove() {
+    printMsg "Restoring GNOME settings and removing Andromeda theme..."
+
+    user=$(logname)
+    user_home=$(getent passwd "$user" | cut -d: -f6)
+    backup_file="$user_home/.config/gnome-settings-backup.txt"
+
+    if [ -f "$backup_file" ]; then
+        while IFS= read -r line; do
+            schema=$(echo "$line" | awk '{print $1}')
+            key=$(echo "$line" | awk '{print $2}')
+            value=$(echo "$line" | cut -d' ' -f3-)
+            su - "$user" -c "
+                export DISPLAY=:0;
+                export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
+                gsettings set $schema $key $value
+            "
+        done < "$backup_file"
+        rm "$backup_file"
+    fi
+
+    rm -rf /usr/share/themes/Andromeda
+    rm -f "$user_home/.config/assets"
+
+    printMsg "Andromeda theme removed and previous settings restored."
+}
