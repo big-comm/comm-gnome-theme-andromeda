@@ -82,9 +82,9 @@ post_install() {
         return 1
     fi
     mkdir -p $THEMES_DIR/Andromeda
-    cp -r "$tmp_dir/"* $THEMES_DIR/Andromeda/
+    cp -r "$TMP_DIR/"* $THEMES_DIR/Andromeda/
     chown -R root:root $THEMES_DIR/Andromeda
-    rm -rf "$tmp_dir"
+    rm -rf "$TMP_DIR"
 
     # Copy files and set ownership
     cp -rp "$THEMES_DIR/Andromeda/gtk-4.0/"* "$GTK4_DIR/"
