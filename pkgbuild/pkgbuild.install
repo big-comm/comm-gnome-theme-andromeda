@@ -16,87 +16,132 @@ printMsg() {
     echo -e "${blueDark}[${lightBlue}comm-gnome-theme-andromeda${blueDark}]${reset} ${cyan}→${reset} ${white}${message}${reset}"
 }
 
+
+# Function executed before package installation
 pre_install() {
     printMsg "Preparing to install Andromeda theme for GNOME..."
+
+    # Check if GNOME is in use
     if [ "$XDG_CURRENT_DESKTOP" != "GNOME" ]; then
         printMsg "Error: GNOME is not the current desktop environment."
+        printMsg "This package is only compatible with GNOME."
         exit 1
     fi
 }
 
+# Function executed after package installation
 post_install() {
-    printMsg "Cloning Andromeda theme from GitHub..."
-    tmp_dir="/tmp/Andromeda"
-    repo_url="https://github.com/EliverLara/Andromeda-gtk.git"
-
-    rm -rf "$tmp_dir"
-    git clone --depth=1 "$repo_url" "$tmp_dir"
-    if [ $? -ne 0 ]; then
-        printMsg "Failed to clone Andromeda repository"
-        return 1
-    fi
-
-    printMsg "Installing theme to /usr/share/themes/Andromeda"
-    mkdir -p /usr/share/themes/Andromeda
-    cp -r "$tmp_dir/"* /usr/share/themes/Andromeda/
-    chown -R root:root /usr/share/themes/Andromeda
-    rm -rf "$tmp_dir"
+    printMsg "Applying Andromeda theme for GNOME and configuring GTK..."
 
     user=$(logname)
     user_home=$(getent passwd "$user" | cut -d: -f6)
     backup_file="$user_home/.config/gnome-settings-backup.txt"
 
-    printMsg "Backing up current GNOME theme settings..."
+    if [ -z "$user_home" ]; then
+        printMsg "Could not determine the home directory for user $user. Skipping theme application."
+        return
+    fi
+
+    # Backup current GNOME settings
+    printMsg "Backing up current GNOME settings to $backup_file..."
     su - "$user" -c "
         export DISPLAY=:0;
         export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
         {
             echo org.gnome.shell.extensions.user-theme name \$(gsettings get org.gnome.shell.extensions.user-theme name);
             echo org.gnome.desktop.interface gtk-theme \$(gsettings get org.gnome.desktop.interface gtk-theme);
-            echo org.gnome.desktop.wm.preferences theme \$(gsettings get org.gnome.desktop.wm.preferences theme);
+	    echo org.gnome.desktop.wm.preferences theme \$(gsettings get org.gnome.desktop.wm.preferences theme);
         } > \"$backup_file\"
     "
 
+    # Directories
     GTK4_DIR="$user_home/.config/gtk-4.0"
     GTK3_DIR="$user_home/.config/gtk-3.0"
-    mkdir -p "$GTK4_DIR" "$GTK3_DIR"
-    chown -R "$user:$user" "$GTK4_DIR" "$GTK3_DIR"
+    THEMES_DIR="/usr/share/themes"
+    TMP_DIR="/tmp/Andromeda"
+    REPO_URL="https://github.com/EliverLara/Andromeda-gtk.git"
 
-    cp -rp /usr/share/themes/Andromeda/gtk-4.0/* "$GTK4_DIR/"
-    cp -rp /usr/share/themes/Andromeda/gtk-3.0/* "$GTK3_DIR/"
-    chown -R "$user:$user" "$GTK4_DIR" "$GTK3_DIR"
 
-    printMsg "Applying Andromeda theme for user $user..."
+    # Backup and update GTK configurations
+    for dir in "$GTK4_DIR" "$GTK3_DIR"; do
+        if [ -d "$dir" ]; then
+            mkdir -p "$user_home/backup_customizations"
+            tar -czf "$user_home/backup_customizations/$(basename "$dir")-$(date +%Y%m%d%H%M%S).tar.gz" -C "$(dirname "$dir")" "$(basename "$dir")"
+        else
+            mkdir -p "$dir"
+        fi
+        # Set correct ownership for GTK directories
+        chown -R "$user:$user" "$dir"
+    done
+    
+    printMsg "Cloning Andromeda repository..."
+    git clone --depth=1 "$REPO_URL" "$TMP_DIR"
+
+    if [ $? -ne 0 ]; then
+        printMsg "Failed to clone Andromeda repository"
+        return 1
+    fi
+    mkdir -p $THEMES_DIR/Andromeda
+    cp -r "$tmp_dir/"* $THEMES_DIR/Andromeda/
+    chown -R root:root $THEMES_DIR/Andromeda
+    rm -rf "$tmp_dir"
+
+    # Copy files and set ownership
+    cp -rp "$THEMES_DIR/Andromeda/gtk-4.0/"* "$GTK4_DIR/"
+    cp -rp "$THEMES_DIR/Andromeda/gtk-3.0/"* "$GTK3_DIR/"
+
+    chown -R root:root $THEMES_DIR/Andromeda
+    chown -R "$user:$user" "$GTK4_DIR"
+    chown -R "$user:$user" "$GTK3_DIR"
+    chown -R "$user:$user" "$user_home/backup_customizations"
+
+   # Apply GNOME settings
+    printMsg "Applying GNOME settings for user $user..."
     su - "$user" -c "
         export DISPLAY=:0;
         export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
         gsettings set org.gnome.shell.extensions.user-theme name 'Andromeda';
         gsettings set org.gnome.desktop.interface gtk-theme 'Andromeda';
-        gsettings set org.gnome.desktop.wm.preferences theme 'Andromeda';
-    "
+	gsettings set org.gnome.desktop.wm.preferences theme 'Andromeda';
 
-    ln -sf /usr/share/themes/Andromeda/assets "$user_home/.config/assets"
+    "
+    # Create symbolic link in user's .config directory pointing to assets
+    printMsg "Creating symbolic link for assets in $user_home/.config..."
+    ln -sf "$THEMES_DIR/Andromeda/assets" "$user_home/.config/assets"
     chown -h "$user:$user" "$user_home/.config/assets"
 
     printMsg "Andromeda theme applied successfully!"
 }
 
-pre_remove() {
-    printMsg "Preparing to remove Andromeda theme..."
-}
+# Function executed after package removal
 
 post_remove() {
-    printMsg "Restoring GNOME settings and removing Andromeda theme..."
+    printMsg "Restoring default GNOME settings and removing Andromeda theme files..."
 
     user=$(logname)
     user_home=$(getent passwd "$user" | cut -d: -f6)
+    backup_dir="$user_home/backup_customizations"
+    gtk4_backup_pattern="gtk-4.0-*.tar.gz"
+    gtk3_backup_pattern="gtk-3.0-*.tar.gz"
+    GTK4_DIR="$user_home/.config/gtk-4.0"
+    GTK3_DIR="$user_home/.config/gtk-3.0"
+    THEMES_DIR="/usr/share/themes/Andromeda"
     backup_file="$user_home/.config/gnome-settings-backup.txt"
 
+    # Verify if the user's home directory exists
+    if [ -z "$user_home" ]; then
+        printMsg "Could not determine the home directory for user $user. Skipping restoration."
+        return
+    fi
+
+    # Restore GNOME settings
     if [ -f "$backup_file" ]; then
+        printMsg "Restoring GNOME settings from $backup_file..."
         while IFS= read -r line; do
             schema=$(echo "$line" | awk '{print $1}')
             key=$(echo "$line" | awk '{print $2}')
             value=$(echo "$line" | cut -d' ' -f3-)
+
             su - "$user" -c "
                 export DISPLAY=:0;
                 export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u "$user")/bus;
@@ -104,10 +149,55 @@ post_remove() {
             "
         done < "$backup_file"
         rm "$backup_file"
+    else
+        printMsg "No GNOME settings backup found. Skipping restoration."
     fi
 
-    rm -rf /usr/share/themes/Andromeda
-    rm -f "$user_home/.config/assets"
+    # Remove current GTK directories
+    printMsg "Removing current GTK directories..."
+    for dir in "$GTK4_DIR" "$GTK3_DIR"; do
+        if [ -d "$dir" ]; then
+            rm -rf "$dir"
+            printMsg "Removed: $dir"
+        fi
+    done
 
-    printMsg "Andromeda theme removed and previous settings restored."
+    # Restore backups
+    printMsg "Restoring GTK directories from backups..."
+    if [ -d "$backup_dir" ]; then
+        for backup_file in "$backup_dir"/$gtk4_backup_pattern "$backup_dir"/$gtk3_backup_pattern; do
+            if [ -f "$backup_file" ]; then
+                printMsg "Restoring $backup_file..."
+                tar -xzf "$backup_file" -C "$user_home/.config/"
+                printMsg "Restored: $(basename "$backup_file")"
+            fi
+        done
+    else
+        printMsg "Backup directory $backup_dir not found. Skipping restoration."
+    fi
+
+    # Remove theme directory
+    if [ -d "$THEMES_DIR" ]; then
+        printMsg "Removing theme directory: $THEMES_DIR"
+        rm -rf "$THEMES_DIR"
+    else
+        printMsg "Theme directory not found: $THEMES_DIR"
+    fi
+    
+    # Remove symbolic link assets
+    if [ -L "$user_home/.config/assets" ]; then
+        printMsg "Removing symbolic link: $user_home/.config/assets"
+        rm "$user_home/.config/assets"
+    else
+        printMsg "Symbolic link not found: $user_home/.config/assets"
+    fi
+    #Remove backup files
+    if [ -d "$backup_dir" ]; then
+        printMsg "Removing backup directory: $backup_dir"
+        rm -rf "$backup_dir"
+    else
+        printMsg "Backup directory not found: $backup_dir"
+    fi    
+
+    printMsg "Default GNOME settings restored and all Dracula theme files removed."
 }
